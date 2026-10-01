@@ -125,7 +125,8 @@ export function scanFindings(session: SessionState): Finding[] {
       severity: "warn",
       trackId: scratch.id,
       title: `${scratch.name} — missing media`,
-      evidence: "Offline clip. The file is not on disk. Helix will not invent audio or rewrite a proprietary project to fake a restore.",
+      evidence:
+        "Offline clip. The file is not on disk. Helix will not invent audio or rewrite a proprietary project to fake a restore.",
       autoSafe: false,
       fixable: false,
       intent: { kind: "unknown", text: "locate missing media" },
@@ -170,8 +171,17 @@ function pickMechanism(
   const native = caps.native;
   const plugin = caps.plugin_bridge;
 
-  if (kind === "mute" || kind === "solo" || kind === "arm" || kind === "transport" || kind === "bank") {
+  if (
+    kind === "mute" ||
+    kind === "solo" ||
+    kind === "arm" ||
+    kind === "transport" ||
+    kind === "bank"
+  ) {
     return { mechanism: "surface", precision: "EXACT", cap: "CAP-2" };
+  }
+  if (kind === "set_send") {
+    return { mechanism: "surface", precision: "COARSE", cap: "CAP-2" };
   }
   if (kind === "rename") {
     if (native.rename) return { mechanism: "native", precision: "EXACT", cap: "CAP-3" };
@@ -204,7 +214,12 @@ function pickMechanism(
   }
   if (kind === "write_automation" || kind === "flatten_chorus") {
     if (!DEFAULT_CONSTRAINTS.allowAutomationChanges) {
-      return { mechanism: "none", precision: "UNKNOWN", cap: "CAP-0", refuse: "Automation changes are blocked by a hard constraint." };
+      return {
+        mechanism: "none",
+        precision: "UNKNOWN",
+        cap: "CAP-0",
+        refuse: "Automation changes are blocked by a hard constraint.",
+      };
     }
     if (native.automation) return { mechanism: "native", precision: "EXACT", cap: "CAP-3" };
     if (plugin.track_state) return { mechanism: "plugin_bridge", precision: "HIGH", cap: "CAP-3" };
@@ -235,7 +250,12 @@ function pickMechanism(
       human: "Trim the leading silent region on Drum Room.",
     };
   }
-  return { mechanism: "none", precision: "UNKNOWN", cap: "CAP-0", refuse: "No mechanism for this intent." };
+  return {
+    mechanism: "none",
+    precision: "UNKNOWN",
+    cap: "CAP-0",
+    refuse: "No mechanism for this intent.",
+  };
 }
 
 function quantizeByPrecision(db: number, precision: Precision): number {
@@ -244,7 +264,11 @@ function quantizeByPrecision(db: number, precision: Precision): number {
   return quantizeMcu(db);
 }
 
-function volumeChange(track: Track, change: Extract<Change, { kind: "volume" }>, precision: Precision) {
+function volumeChange(
+  track: Track,
+  change: Extract<Change, { kind: "volume" }>,
+  precision: Precision,
+) {
   const target = change.absDb !== undefined ? change.absDb : track.volumeDb + (change.deltaDb ?? 0);
   return quantizeByPrecision(target, precision);
 }
@@ -256,7 +280,11 @@ function previewDiffs(session: SessionState, changes: Change[], precision: Preci
       const t = trackById(session, change.trackId);
       if (!t) continue;
       const next = volumeChange(t, change, precision);
-      lines.push({ label: `${t.name} · volume`, before: `${formatDb(t.volumeDb)} dB`, after: `${formatDb(next)} dB` });
+      lines.push({
+        label: `${t.name} · volume`,
+        before: `${formatDb(t.volumeDb)} dB`,
+        after: `${formatDb(next)} dB`,
+      });
       if (t.truePeakDb > -80) {
         const delta = next - t.volumeDb;
         lines.push({
@@ -267,25 +295,53 @@ function previewDiffs(session: SessionState, changes: Change[], precision: Preci
       }
     } else if (change.kind === "mute") {
       const t = trackById(session, change.trackId);
-      if (t) lines.push({ label: `${t.name} · mute`, before: t.mute ? "on" : "off", after: change.enabled ? "on" : "off" });
+      if (t)
+        lines.push({
+          label: `${t.name} · mute`,
+          before: t.mute ? "on" : "off",
+          after: change.enabled ? "on" : "off",
+        });
     } else if (change.kind === "solo") {
       const t = trackById(session, change.trackId);
-      if (t) lines.push({ label: `${t.name} · solo`, before: t.solo ? "on" : "off", after: change.enabled ? "on" : "off" });
+      if (t)
+        lines.push({
+          label: `${t.name} · solo`,
+          before: t.solo ? "on" : "off",
+          after: change.enabled ? "on" : "off",
+        });
     } else if (change.kind === "arm") {
       const t = trackById(session, change.trackId);
-      if (t) lines.push({ label: `${t.name} · arm`, before: t.arm ? "on" : "off", after: change.enabled ? "on" : "off" });
+      if (t)
+        lines.push({
+          label: `${t.name} · arm`,
+          before: t.arm ? "on" : "off",
+          after: change.enabled ? "on" : "off",
+        });
     } else if (change.kind === "rename") {
       const t = trackById(session, change.trackId);
       if (t) lines.push({ label: "Track name", before: t.name, after: change.name });
     } else if (change.kind === "trim_silence") {
       const t = trackById(session, change.trackId);
-      if (t) lines.push({ label: `${t.name} · silence`, before: `${t.unusedSilenceSec.toFixed(1)} s`, after: "0.0 s" });
+      if (t)
+        lines.push({
+          label: `${t.name} · silence`,
+          before: `${t.unusedSilenceSec.toFixed(1)} s`,
+          after: "0.0 s",
+        });
     } else if (change.kind === "archive_takes") {
       const t = trackById(session, change.trackId);
       if (t) {
         const keep = t.takes.filter((x) => change.keepIds.includes(x.id)).map((x) => x.name);
         const hide = t.takes.filter((x) => !change.keepIds.includes(x.id)).map((x) => x.name);
-        lines.push({ label: "Keep", before: t.takes.filter((x) => x.selected && !x.archived).map((x) => x.name).join(", ") || "—", after: keep.join(", ") });
+        lines.push({
+          label: "Keep",
+          before:
+            t.takes
+              .filter((x) => x.selected && !x.archived)
+              .map((x) => x.name)
+              .join(", ") || "—",
+          after: keep.join(", "),
+        });
         lines.push({ label: "Archive", before: "—", after: hide.join(", ") });
       }
     } else if (change.kind === "automation_delta" || change.kind === "flatten_chorus") {
@@ -293,13 +349,29 @@ function previewDiffs(session: SessionState, changes: Change[], precision: Preci
       if (t) {
         lines.push({
           label: `${t.name} · chorus ride`,
-          before: chorusOffsets(t).map((o) => formatDb(o)).join(" / "),
+          before: chorusOffsets(t)
+            .map((o) => formatDb(o))
+            .join(" / "),
           after: `${formatDb(change.kind === "flatten_chorus" ? change.offsetDb : change.deltaDb)} dB × 4`,
         });
       }
     } else if (change.kind === "pan") {
       const t = trackById(session, change.trackId);
-      if (t) lines.push({ label: `${t.name} · pan`, before: t.pan.toFixed(2), after: change.value.toFixed(2) });
+      if (t)
+        lines.push({
+          label: `${t.name} · pan`,
+          before: t.pan.toFixed(2),
+          after: change.value.toFixed(2),
+        });
+    } else if (change.kind === "send") {
+      const t = trackById(session, change.trackId);
+      const send = t?.sends.find((candidate) => candidate.dest === change.dest);
+      if (t)
+        lines.push({
+          label: `${t.name} · send`,
+          before: send ? `${formatDb(send.db)} dB → ${change.dest}` : "not assigned",
+          after: `${formatDb(change.db)} dB → ${change.dest}`,
+        });
     }
   }
   return lines;
@@ -308,7 +380,14 @@ function previewDiffs(session: SessionState, changes: Change[], precision: Preci
 function vClass(kind: Intent["kind"]): VerificationClass {
   if (kind === "repair_clipping" || kind === "repair_true_peak") return "V3";
   if (kind === "set_gain" || kind === "write_automation" || kind === "flatten_chorus") return "V2";
-  if (kind === "mute" || kind === "solo" || kind === "arm" || kind === "rename") return "V1";
+  if (
+    kind === "mute" ||
+    kind === "solo" ||
+    kind === "arm" ||
+    kind === "rename" ||
+    kind === "set_send"
+  )
+    return "V1";
   return "V1";
 }
 
@@ -319,7 +398,14 @@ function planIntentLegacy(
   seq: number,
   constraints: Constraints = DEFAULT_CONSTRAINTS,
 ): Operation[] {
-  if (intent.kind === "inspect_session" || intent.kind === "inspect_takes" || intent.kind === "fix_safe" || intent.kind === "undo_last" || intent.kind === "reset_session" || intent.kind === "unknown") {
+  if (
+    intent.kind === "inspect_session" ||
+    intent.kind === "inspect_takes" ||
+    intent.kind === "fix_safe" ||
+    intent.kind === "undo_last" ||
+    intent.kind === "reset_session" ||
+    intent.kind === "unknown"
+  ) {
     return [];
   }
 
@@ -327,7 +413,11 @@ function planIntentLegacy(
   const pick = pickMechanism(intent.kind, caps, requireExact);
   const id = nextOpId(seq);
   const trackId =
-    "trackId" in intent ? intent.trackId : intent.kind === "transport" || intent.kind === "bank" ? undefined : undefined;
+    "trackId" in intent
+      ? intent.trackId
+      : intent.kind === "transport" || intent.kind === "bank"
+        ? undefined
+        : undefined;
   const track = trackId ? trackById(session, trackId) : undefined;
 
   const base = {
@@ -349,6 +439,10 @@ function planIntentLegacy(
     humanProcedure: pick.human,
   };
 
+  if (intent.kind === "set_send" && !constraints.allowRoutingChanges) {
+    pick.refuse =
+      "Routing changes are blocked by the active project constraint. Enable routing changes explicitly before committing a send automation operation.";
+  }
   if (pick.refuse) {
     return [
       {
@@ -389,10 +483,15 @@ function planIntentLegacy(
       const delta = Math.abs(next - t.volumeDb);
       if (delta > constraints.maxGainChangeDb) {
         autoSafe = false;
-        preconditions.push(`Gain change ${formatDb(delta)} dB exceeds hard limit of ${constraints.maxGainChangeDb} dB.`);
+        preconditions.push(
+          `Gain change ${formatDb(delta)} dB exceeds hard limit of ${constraints.maxGainChangeDb} dB.`,
+        );
       }
     }
-    if ((change.kind === "automation_delta" || change.kind === "flatten_chorus") && !constraints.allowAutomationChanges) {
+    if (
+      (change.kind === "automation_delta" || change.kind === "flatten_chorus") &&
+      !constraints.allowAutomationChanges
+    ) {
       autoSafe = false;
       preconditions.push("Automation changes are blocked.");
     }
@@ -439,6 +538,8 @@ function describeIntent(intent: Intent, track?: Track): string {
       return `Normalize ${name} chorus rides to ${formatDb(intent.offsetDb)} dB`;
     case "set_pan":
       return `Pan ${name}`;
+    case "set_send":
+      return `Set ${name} send to ${intent.dest} at ${formatDb(intent.db)} dB`;
     case "transport":
       return `Transport ${intent.command}`;
     case "bank":
@@ -479,6 +580,16 @@ function changesFor(intent: Intent, session: SessionState): Change[] {
       return [{ kind: "rename", trackId: intent.trackId, name: intent.name }];
     case "set_pan":
       return [{ kind: "pan", trackId: intent.trackId, value: intent.value }];
+    case "set_send":
+      return [
+        {
+          kind: "send",
+          trackId: intent.trackId,
+          dest: intent.dest,
+          db: intent.db,
+          sendIndex: intent.sendIndex,
+        },
+      ];
     case "trim_silence":
       if (!intent.trackId) return [];
       return [{ kind: "trim_silence", trackId: intent.trackId }];
@@ -486,10 +597,23 @@ function changesFor(intent: Intent, session: SessionState): Change[] {
       const t = trackById(session, intent.trackId);
       if (!t) return [];
       const ranked = [...t.takes].filter((x) => !x.archived).sort((a, b) => b.snrDb - a.snrDb);
-      return [{ kind: "archive_takes", trackId: t.id, keepIds: ranked.slice(0, intent.keep).map((x) => x.id) }];
+      return [
+        {
+          kind: "archive_takes",
+          trackId: t.id,
+          keepIds: ranked.slice(0, intent.keep).map((x) => x.id),
+        },
+      ];
     }
     case "write_automation":
-      return [{ kind: "automation_delta", trackId: intent.trackId, region: "chorus", deltaDb: intent.deltaDb }];
+      return [
+        {
+          kind: "automation_delta",
+          trackId: intent.trackId,
+          region: "chorus",
+          deltaDb: intent.deltaDb,
+        },
+      ];
     case "flatten_chorus":
       return [{ kind: "flatten_chorus", trackId: intent.trackId, offsetDb: intent.offsetDb }];
     case "transport":
@@ -541,6 +665,10 @@ export function applyChanges(
       track.name = change.name;
     } else if (change.kind === "pan") {
       track.pan = change.value;
+    } else if (change.kind === "send") {
+      const existing = track.sends.find((send) => send.dest === change.dest);
+      if (existing) existing.db = change.db;
+      else track.sends.push({ dest: change.dest, db: change.db });
     } else if (change.kind === "trim_silence") {
       track.unusedSilenceSec = 0;
       track.clips = track.clips.filter((c) => !c.silent);
@@ -584,7 +712,11 @@ export function applyChanges(
   return next;
 }
 
-function verifyOperationLegacy(op: Operation, before: SessionState, after: SessionState): Operation["verification"] {
+function verifyOperationLegacy(
+  op: Operation,
+  before: SessionState,
+  after: SessionState,
+): Operation["verification"] {
   if (!op.changes.length) {
     return { status: "SKIPPED", observed: "No mutation.", class: op.verificationClass };
   }
@@ -611,7 +743,8 @@ function verifyOperationLegacy(op: Operation, before: SessionState, after: Sessi
       const t1 = trackById(after, change.trackId);
       if (t1) {
         const kept = t1.takes.filter((t) => !t.archived).map((t) => t.id);
-        if (kept.sort().join() !== [...change.keepIds].sort().join()) failures.push("take selection mismatch");
+        if (kept.sort().join() !== [...change.keepIds].sort().join())
+          failures.push("take selection mismatch");
       }
     }
   }
@@ -626,9 +759,7 @@ function verifyOperationLegacy(op: Operation, before: SessionState, after: Sessi
 }
 
 export function ledgerSummary(op: Operation): string {
-  const diffs = op.diffs
-    .map((d) => `${d.label}: ${d.before} → ${d.after}`)
-    .join(" · ");
+  const diffs = op.diffs.map((d) => `${d.label}: ${d.before} → ${d.after}`).join(" · ");
   const v = op.verification?.status ?? "—";
   return `${op.intent}. ${diffs} Verified ${v}.`;
 }
@@ -663,10 +794,18 @@ export function scanSession(session: SessionState): Finding[] {
 
 export function describeInspect(findings: Finding[]): string {
   if (!findings.length) return "Session looks clean. No actionable findings.";
-  return findings.map((finding) => `${finding.severity.toUpperCase()} · ${finding.title}\n${finding.detail}`).join("\n\n");
+  return findings
+    .map((finding) => `${finding.severity.toUpperCase()} · ${finding.title}\n${finding.detail}`)
+    .join("\n\n");
 }
 
-export function planFinding(finding: any, session: SessionState, caps: CapabilityGraph, constraints: Constraints, seq: ReturnType<typeof makeSeq>): Operation[] {
+export function planFinding(
+  finding: any,
+  session: SessionState,
+  caps: CapabilityGraph,
+  constraints: Constraints,
+  seq: ReturnType<typeof makeSeq>,
+): Operation[] {
   const intent = finding._intent ?? finding.intent;
   if (!intent) return [];
   return planIntent(intent, session, caps, constraints, seq);
@@ -679,7 +818,13 @@ export function planIntent(
   constraints: Constraints,
   seq: ReturnType<typeof makeSeq>,
 ): Operation[] {
-  const legacy = planIntentLegacy(intent as any, session, caps, seq.nextOp(), constraints as any) as any[];
+  const legacy = planIntentLegacy(
+    intent as any,
+    session,
+    caps,
+    seq.nextOp(),
+    constraints as any,
+  ) as any[];
   return legacy.map((item) => ({
     ...item,
     summary: item.intent,
@@ -695,15 +840,30 @@ export function executeOperation(op: Operation, before: SessionState) {
   const session = applyChanges(before, op.changes, op.precision);
   return {
     session,
-    snapshot: { id: `snap_${op.id}`, operationId: op.id, session: cloneSession(before), bankOffset: 0 },
+    snapshot: {
+      id: `snap_${op.id}`,
+      operationId: op.id,
+      session: cloneSession(before),
+      bankOffset: 0,
+    },
   };
 }
 
-export function applyChange(session: SessionState, change: Change, precision: Precision): SessionState {
+export function applyChange(
+  session: SessionState,
+  change: Change,
+  precision: Precision,
+): SessionState {
   return applyChanges(session, [change], precision);
 }
 
-export function toLedger(op: Operation, before: SessionState, after: SessionState, verification: LedgerEntry["verification"], seq: ReturnType<typeof makeSeq>): LedgerEntry {
+export function toLedger(
+  op: Operation,
+  before: SessionState,
+  after: SessionState,
+  verification: LedgerEntry["verification"],
+  seq: ReturnType<typeof makeSeq>,
+): LedgerEntry {
   return {
     id: `led_${seq.nextMsg()}`,
     operationId: op.id,

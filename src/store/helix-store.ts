@@ -27,8 +27,26 @@ import {
 import { compileLocal } from "@/lib/helix/compiler";
 import { compileIntentRemote } from "@/lib/helix/compile-intent";
 import { AUTONOMY } from "@/lib/helix/format";
+import { createProToolsHuiSimulator, type AdapterHealth } from "@/lib/udawca/adapter";
+import type { HelixSurfaceProtocol } from "@/lib/udawca/protocol-registry";
+import type { VoiceInputMode, VoiceProviderHealth, VoiceTranscript } from "@/lib/helix/voice";
+import type { AudioDiagnosticsSnapshot } from "@/lib/helix/audio-diagnostics";
+import {
+  createBrowserVoiceMacroStorage,
+  createVoiceMacro,
+  type VoiceMacro,
+} from "@/lib/helix/voice-macros";
+import {
+  createBrowserBackupStorage,
+  createSessionBackup,
+  verifySessionBackup,
+  type SessionBackup,
+} from "@/lib/helix/session-backup";
 
 const seq = makeSeq();
+const proToolsHuiSimulator = createProToolsHuiSimulator();
+const sessionBackupStorage = createBrowserBackupStorage();
+const voiceMacroStorage = createBrowserVoiceMacroStorage();
 
 function welcome(): AgentMessage {
   return {
@@ -57,6 +75,20 @@ interface HelixStore {
   busy: boolean;
   mobilePane: MobilePane;
   capsOpen: boolean;
+  adapterProtocol: HelixSurfaceProtocol;
+  adapterHealth: AdapterHealth | null;
+  voiceHealth: VoiceProviderHealth;
+  voiceMode: VoiceInputMode | null;
+  latestVoiceTranscript: VoiceTranscript | null;
+  lastVoiceRoutingConfirmation: string | null;
+  adapterFeedbackAt: number | null;
+  routingFeedback: string | null;
+  backups: SessionBackup[];
+  backupStatus: string | null;
+  pendingRecoveryId: string | null;
+  voiceMacros: VoiceMacro[];
+  audioDiagnostics: AudioDiagnosticsSnapshot | null;
+  audioDiagnosticsStatus: string | null;
   connect: (id: HostId) => void;
   setAutonomy: (level: AutonomyLevel) => void;
   selectTrack: (id: string | null) => void;
@@ -65,6 +97,22 @@ interface HelixStore {
   tick: (dt: number) => void;
   setMobilePane: (p: MobilePane) => void;
   toggleCaps: (open?: boolean) => void;
+  setAdapterProtocol: (protocol: HelixSurfaceProtocol) => void;
+  connectAdapter: () => Promise<void>;
+  disconnectAdapter: () => Promise<void>;
+  setVoiceHealth: (health: VoiceProviderHealth) => void;
+  setVoiceMode: (mode: VoiceInputMode | null) => void;
+  receiveVoiceTranscript: (transcript: VoiceTranscript) => Promise<void>;
+  receiveAdapterFeedback: (session: SessionState) => void;
+  backupSession: (label?: string) => SessionBackup;
+  listBackups: () => SessionBackup[];
+  requestRestore: (backupId?: string) => void;
+  approveRestore: () => void;
+  defineVoiceMacro: (name: string, trigger: string, template: string) => void;
+  listVoiceMacros: () => VoiceMacro[];
+  deleteVoiceMacro: (name: string) => void;
+  inspectAudioDiagnostics: () => void;
+  receiveAudioDiagnostics: (snapshot: AudioDiagnosticsSnapshot) => void;
   submit: (text: string) => Promise<void>;
   inspect: () => Promise<void>;
   approve: (id: string) => Promise<void>;
@@ -77,7 +125,12 @@ interface HelixStore {
   transport: (command: "play" | "stop" | "return") => void;
 }
 
-function pushMsg(list: AgentMessage[], role: AgentMessage["role"], text: string, extra?: Partial<AgentMessage>): AgentMessage[] {
+function pushMsg(
+  list: AgentMessage[],
+  role: AgentMessage["role"],
+  text: string,
+  extra?: Partial<AgentMessage>,
+): AgentMessage[] {
   return [
     ...list,
     {
@@ -110,12 +163,32 @@ export const useHelix = create<HelixStore>((set, get) => ({
   busy: false,
   mobilePane: "agent",
   capsOpen: false,
+  adapterProtocol: "HUI",
+  adapterHealth: null,
+  voiceHealth: {
+    state: "idle",
+    permission: "unknown",
+    message: "Native booth microphone is not connected in the browser preview.",
+  },
+  voiceMode: null,
+  latestVoiceTranscript: null,
+  lastVoiceRoutingConfirmation: null,
+  adapterFeedbackAt: null,
+  routingFeedback: null,
+  backups: sessionBackupStorage.list(),
+  backupStatus: null,
+  pendingRecoveryId: null,
+  voiceMacros: voiceMacroStorage.list(),
+  audioDiagnostics: null,
+  audioDiagnosticsStatus: null,
 
   connect: (id) => {
     const caps = hostById(id);
     set((s) => ({
       hostId: id,
       caps,
+      adapterHealth:
+        id === "protools" && get().adapterProtocol === "HUI" ? proToolsHuiSimulator.health() : null,
       messages: pushMsg(
         s.messages,
         "system",
@@ -162,11 +235,254 @@ export const useHelix = create<HelixStore>((set, get) => ({
   setMobilePane: (p) => set({ mobilePane: p }),
   toggleCaps: (open) => set((s) => ({ capsOpen: open ?? !s.capsOpen })),
 
+  setVoiceHealth: (health) => set({ voiceHealth: health }),
+  setVoiceMode: (mode) => set({ voiceMode: mode }),
+  receiveVoiceTranscript: async (transcript) => {
+    const routingPrompt = /\b(send|route|routing|aux|bus|reverb|delay)\b/i.test(transcript.text);
+    set((s) => ({
+      latestVoiceTranscript: transcript,
+      lastVoiceRoutingConfirmation: routingPrompt
+        ? "Voice routing prompt received. Helix will plan the send change, require routing permission, and wait for surface feedback before confirming it."
+        : s.lastVoiceRoutingConfirmation,
+      messages: routingPrompt
+        ? pushMsg(
+            s.messages,
+            "system",
+            "Voice routing prompt received. Planning will preserve Helix approval and feedback verification.",
+          )
+        : s.messages,
+    }));
+    if (!transcript.final || !transcript.text.trim()) return;
+    await get().submit(transcript.text.trim());
+  },
+
+  receiveAdapterFeedback: (feedback) => {
+    const touched = feedback.tracks
+      .filter((track) => track.feedbackAt)
+      .filter(
+        (track) =>
+          track.sends.length || track.meterLeftDb !== undefined || track.meterRightDb !== undefined,
+      )
+      .slice(0, 6)
+      .map((track) => {
+        const sends = track.sends.map((send) => `${send.dest} ${send.db.toFixed(1)} dB`).join(", ");
+        const meters = [track.meterLeftDb, track.meterRightDb]
+          .filter((db): db is number => db !== undefined)
+          .map((db) => `${db.toFixed(1)} dB`)
+          .join(" / ");
+        return `${track.name}: ${[sends && `sends ${sends}`, meters && `meters ${meters}`].filter(Boolean).join(" · ")}`;
+      });
+    const summary = touched.length ? `Live HUI feedback: ${touched.join("; ")}.` : null;
+    set((s) => ({
+      session: cloneSession(feedback),
+      adapterFeedbackAt: Date.now(),
+      routingFeedback: summary,
+      messages:
+        summary && summary !== s.routingFeedback
+          ? pushMsg(s.messages, "system", summary)
+          : s.messages,
+    }));
+  },
+
+  backupSession: (label) => {
+    const backup = createSessionBackup(get().session, label);
+    sessionBackupStorage.save(backup);
+    set((s) => ({
+      backups: sessionBackupStorage.list(),
+      backupStatus: `Backup saved: ${backup.label}. Integrity ${backup.checksum}.`,
+      messages: pushMsg(s.messages, "system", `Session backup saved: ${backup.label}.`),
+    }));
+    return backup;
+  },
+
+  listBackups: () => {
+    const backups = sessionBackupStorage.list();
+    set({
+      backups,
+      backupStatus: backups.length
+        ? `${backups.length} session backup(s) available.`
+        : "No session backups exist yet.",
+    });
+    return backups;
+  },
+
+  requestRestore: (backupId) => {
+    const records = sessionBackupStorage.list();
+    const backup =
+      (backupId &&
+        records.find(
+          (candidate) =>
+            candidate.id === backupId || candidate.label.toLowerCase() === backupId.toLowerCase(),
+        )) ??
+      records[0];
+    if (!backup) {
+      set((s) => ({
+        backupStatus: "No session backup is available to restore.",
+        messages: pushMsg(s.messages, "agent", "No session backup is available to restore."),
+      }));
+      return;
+    }
+    set((s) => ({
+      pendingRecoveryId: backup.id,
+      backupStatus: `Recovery staged: ${backup.label}. Approval is required before replacing the current session.`,
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        `Recovery staged for ${backup.label}. Approve it to replace the current session.`,
+      ),
+    }));
+  },
+
+  approveRestore: () => {
+    const id = get().pendingRecoveryId;
+    const backup = id
+      ? sessionBackupStorage.list().find((candidate) => candidate.id === id)
+      : undefined;
+    if (!backup) return;
+    const integrity = verifySessionBackup(backup);
+    if (!integrity.ok) {
+      set((s) => ({
+        pendingRecoveryId: null,
+        backupStatus: integrity.reason,
+        messages: pushMsg(s.messages, "agent", integrity.reason),
+      }));
+      return;
+    }
+    set((s) => ({
+      session: cloneSession(backup.session),
+      pendingRecoveryId: null,
+      backupStatus: `Recovered ${backup.label} after integrity verification.`,
+      findings: scanSession(backup.session),
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        `Recovered ${backup.label}. Checksum verified before restore.`,
+      ),
+    }));
+  },
+
+  defineVoiceMacro: (name, trigger, template) => {
+    try {
+      const macro = createVoiceMacro(name, trigger, template);
+      voiceMacroStorage.save(macro);
+      set((s) => ({
+        voiceMacros: voiceMacroStorage.list(),
+        messages: pushMsg(
+          s.messages,
+          "system",
+          `Voice macro saved: “${macro.trigger}” runs “${macro.template}”.`,
+        ),
+      }));
+    } catch (error) {
+      set((s) => ({
+        messages: pushMsg(
+          s.messages,
+          "agent",
+          error instanceof Error ? error.message : String(error),
+        ),
+      }));
+    }
+  },
+
+  listVoiceMacros: () => {
+    const voiceMacros = voiceMacroStorage.list();
+    set({ voiceMacros });
+    return voiceMacros;
+  },
+
+  deleteVoiceMacro: (name) => {
+    const macro = voiceMacroStorage
+      .list()
+      .find(
+        (candidate) =>
+          candidate.name.toLowerCase() === name.toLowerCase() ||
+          candidate.trigger === name.toLowerCase(),
+      );
+    if (!macro) {
+      set((s) => ({
+        messages: pushMsg(s.messages, "agent", `No voice macro named “${name}” exists.`),
+      }));
+      return;
+    }
+    voiceMacroStorage.remove(macro.id);
+    set((s) => ({
+      voiceMacros: voiceMacroStorage.list(),
+      messages: pushMsg(s.messages, "system", `Voice macro deleted: “${macro.name}”.`),
+    }));
+  },
+
+  inspectAudioDiagnostics: () => {
+    const snapshot = get().audioDiagnostics;
+    set((s) => ({
+      audioDiagnosticsStatus: snapshot
+        ? `${snapshot.status.toUpperCase()}: input ${snapshot.inputLatencyMs?.toFixed(1) ?? "—"} ms · jitter ${snapshot.jitterMs.toFixed(1)} ms · CPU ${snapshot.cpuLoadPercent.toFixed(0)}% · xruns ${snapshot.xruns} · dropouts ${snapshot.dropouts}`
+        : "No live audio diagnostics sample is available. Start the native booth provider to collect telemetry.",
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        snapshot
+          ? `Audio diagnostics: ${snapshot.message}`
+          : "No live audio diagnostics sample is available.",
+      ),
+    }));
+  },
+
+  receiveAudioDiagnostics: (snapshot) => {
+    set({
+      audioDiagnostics: snapshot,
+      audioDiagnosticsStatus: `${snapshot.status.toUpperCase()}: ${snapshot.inputLatencyMs?.toFixed(1) ?? "—"} ms input · ${snapshot.jitterMs.toFixed(1)} ms jitter · ${snapshot.cpuLoadPercent.toFixed(0)}% CPU`,
+    });
+  },
+
+  setAdapterProtocol: (protocol) =>
+    set((s) => ({
+      adapterProtocol: protocol,
+      adapterHealth: protocol === "HUI" ? proToolsHuiSimulator.health() : null,
+      messages: pushMsg(
+        s.messages,
+        "system",
+        `${protocol} selected. Native desktop transport requires explicit port configuration; browser preview remains fixture-only.`,
+      ),
+    })),
+
+  connectAdapter: async () => {
+    if (get().hostId !== "protools") return;
+    if (get().adapterProtocol !== "HUI") {
+      set((s) => ({
+        adapterHealth: null,
+        messages: pushMsg(
+          s.messages,
+          "system",
+          `${get().adapterProtocol} is implemented in the native desktop adapter, but this browser preview does not claim a live connection without configured MIDI/UDP ports.`,
+        ),
+      }));
+      return;
+    }
+    const health = await proToolsHuiSimulator.connect();
+    set((s) => ({
+      adapterHealth: health,
+      messages: pushMsg(s.messages, "system", health.message ?? "Adapter connected."),
+    }));
+  },
+
+  disconnectAdapter: async () => {
+    if (get().adapterProtocol !== "HUI") return;
+    await proToolsHuiSimulator.disconnect();
+    set((s) => ({
+      adapterHealth: proToolsHuiSimulator.health(),
+      messages: pushMsg(
+        s.messages,
+        "system",
+        "Pro Tools HUI simulator disconnected. No live DAW connection is claimed.",
+      ),
+    }));
+  },
+
   submit: async (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     set((s) => ({ messages: pushMsg(s.messages, "user", trimmed), busy: true }));
-    const local = compileLocal(trimmed, get().session);
+    const local = compileLocal(trimmed, get().session, get().voiceMacros);
     let intent: Intent = local.intent;
     if (local.confidence < 0.75 && local.intent.kind === "unknown") {
       try {
@@ -221,11 +537,19 @@ export const useHelix = create<HelixStore>((set, get) => ({
     set((s) => ({
       session: cloneSession(snap.session),
       ledger: s.ledger.map((e) =>
-        e.operationId === operationId ? { ...e, rollbackAvailable: false, rolledBack: true, verification: e.verification } : e,
+        e.operationId === operationId
+          ? { ...e, rollbackAvailable: false, rolledBack: true, verification: e.verification }
+          : e,
       ),
-      operations: s.operations.map((o) => (o.id === operationId ? { ...o, phase: "rollback" as const } : o)),
+      operations: s.operations.map((o) =>
+        o.id === operationId ? { ...o, phase: "rollback" as const } : o,
+      ),
       findings: scanSession(snap.session),
-      messages: pushMsg(s.messages, "agent", `Rolled back ${operationId}. Host-level undo would also apply; the ledger keeps the semantic record.`),
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        `Rolled back ${operationId}. Host-level undo would also apply; the ledger keeps the semantic record.`,
+      ),
     }));
   },
 
@@ -257,11 +581,7 @@ export const useHelix = create<HelixStore>((set, get) => ({
     const track = findTrack(session, trackId);
     if (!track) return;
     set({
-      session: applyChange(
-        session,
-        { kind: field, trackId, enabled: !track[field] },
-        "EXACT",
-      ),
+      session: applyChange(session, { kind: field, trackId, enabled: !track[field] }, "EXACT"),
     });
   },
 
@@ -302,6 +622,60 @@ async function dispatchIntent(intent: Intent, original: string) {
     useHelix.getState().reset();
     return;
   }
+  if (intent.kind === "backup_session") {
+    const backup = useHelix.getState().backupSession(intent.label);
+    useHelix.setState((s) => ({
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        `Voice backup complete: ${backup.label} is available for recovery.`,
+      ),
+    }));
+    return;
+  }
+  if (intent.kind === "list_backups") {
+    const backups = useHelix.getState().listBackups();
+    useHelix.setState((s) => ({
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        backups.length
+          ? `Available session backups\n${backups.map((backup) => `${backup.label} · ${new Date(backup.createdAt).toLocaleString()}`).join("\n")}`
+          : "No session backups are available.",
+      ),
+    }));
+    return;
+  }
+  if (intent.kind === "restore_session") {
+    useHelix.getState().requestRestore(intent.backupId);
+    if (autonomy >= 4) useHelix.getState().approveRestore();
+    return;
+  }
+  if (intent.kind === "define_voice_macro") {
+    useHelix.getState().defineVoiceMacro(intent.name, intent.trigger, intent.template);
+    return;
+  }
+  if (intent.kind === "list_voice_macros") {
+    const macros = useHelix.getState().listVoiceMacros();
+    useHelix.setState((s) => ({
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        macros.length
+          ? `Voice macros\n${macros.map((macro) => `“${macro.trigger}” → ${macro.template}`).join("\n")}`
+          : "No custom voice macros are defined.",
+      ),
+    }));
+    return;
+  }
+  if (intent.kind === "delete_voice_macro") {
+    useHelix.getState().deleteVoiceMacro(intent.name);
+    return;
+  }
+  if (intent.kind === "inspect_audio_diagnostics") {
+    useHelix.getState().inspectAudioDiagnostics();
+    return;
+  }
   if (intent.kind === "bank") {
     useHelix.getState().bank(intent.delta);
     return;
@@ -318,7 +692,10 @@ async function dispatchIntent(intent: Intent, original: string) {
   if (intent.kind === "inspect_routing") {
     const lines = mixerTracks(session)
       .filter((t) => t.sends.length)
-      .map((t) => `${t.name} → ${t.sends.map((s) => findTrack(session, s.dest)?.name ?? s.dest).join(", ")}`);
+      .map(
+        (t) =>
+          `${t.name} → ${t.sends.map((s) => findTrack(session, s.dest)?.name ?? s.dest).join(", ")}`,
+      );
     useHelix.setState((s) => ({
       messages: pushMsg(
         s.messages,
@@ -355,13 +732,18 @@ async function dispatchIntent(intent: Intent, original: string) {
   }
   if (intent.kind === "inspect_session") {
     const findings = scanSession(session);
-    const planned = findings.flatMap((f) => planFinding(f, session, caps, DEFAULT_CONSTRAINTS, seq));
+    const planned = findings.flatMap((f) =>
+      planFinding(f, session, caps, DEFAULT_CONSTRAINTS, seq),
+    );
     const auto = planned.filter((o) => o.autoSafe && !o.refusedReason);
     const review = planned.filter((o) => !o.autoSafe || o.refusedReason);
     useHelix.setState((s) => ({
       findings,
       inspectFindings: findings,
-      operations: [...s.operations.filter((o) => o.phase === "commit" || o.phase === "rollback"), ...planned],
+      operations: [
+        ...s.operations.filter((o) => o.phase === "commit" || o.phase === "rollback"),
+        ...planned,
+      ],
       messages: pushMsg(s.messages, "agent", describeInspect(findings), {
         findingIds: findings.map((f) => f.id),
         operationIds: planned.map((o) => o.id),
@@ -394,7 +776,9 @@ async function dispatchIntent(intent: Intent, original: string) {
   if (intent.kind === "fix_safe" || intent.kind === "approve_all") {
     if (state.findings.length === 0) {
       const findings = scanSession(session);
-      const planned = findings.flatMap((f) => planFinding(f, session, caps, DEFAULT_CONSTRAINTS, seq));
+      const planned = findings.flatMap((f) =>
+        planFinding(f, session, caps, DEFAULT_CONSTRAINTS, seq),
+      );
       useHelix.setState((s) => ({
         findings,
         operations: [...s.operations, ...planned],
@@ -412,7 +796,11 @@ async function dispatchIntent(intent: Intent, original: string) {
 
   if (autonomy === 0) {
     useHelix.setState((s) => ({
-      messages: pushMsg(s.messages, "agent", "Autonomy is Observe. I can inspect, not mutate. Raise the level to Propose or Approve."),
+      messages: pushMsg(
+        s.messages,
+        "agent",
+        "Autonomy is Observe. I can inspect, not mutate. Raise the level to Propose or Approve.",
+      ),
     }));
     return;
   }
@@ -440,10 +828,7 @@ async function dispatchIntent(intent: Intent, original: string) {
     if (op.refusedReason) {
       useHelix.setState((s) => ({
         operations: s.operations.map((o) => (o.id === op.id ? { ...o, phase: "refused" } : o)),
-        ledger: [
-          ...s.ledger,
-          toLedger(op, session, session, "REFUSED", seq),
-        ],
+        ledger: [...s.ledger, toLedger(op, session, session, "REFUSED", seq)],
       }));
       continue;
     }
@@ -467,7 +852,14 @@ async function runOne(id: string) {
 }
 
 async function runPlanned(op: Operation, opts: { silent: boolean; auto: boolean }) {
-  const phases: Operation["phase"][] = ["validate", "snapshot", "execute", "observe", "verify", "commit"];
+  const phases: Operation["phase"][] = [
+    "validate",
+    "snapshot",
+    "execute",
+    "observe",
+    "verify",
+    "commit",
+  ];
   for (const phase of phases) {
     useHelix.setState((s) => ({
       operations: s.operations.map((o) => (o.id === op.id ? { ...o, phase } : o)),
@@ -483,8 +875,17 @@ async function runPlanned(op: Operation, opts: { silent: boolean; auto: boolean 
       operations: s.operations.map((o) =>
         o.id === op.id ? { ...o, phase: "rollback", verifyNote: check.note } : o,
       ),
-      ledger: [...s.ledger, toLedger({ ...op, verifyNote: check.note }, before, before, "FAIL", seq)],
-      messages: opts.silent ? s.messages : pushMsg(s.messages, "agent", `Verification failed on ${op.id}. Rolled back. ${check.note}`),
+      ledger: [
+        ...s.ledger,
+        toLedger({ ...op, verifyNote: check.note }, before, before, "FAIL", seq),
+      ],
+      messages: opts.silent
+        ? s.messages
+        : pushMsg(
+            s.messages,
+            "agent",
+            `Verification failed on ${op.id}. Rolled back. ${check.note}`,
+          ),
     }));
     return;
   }
@@ -499,8 +900,13 @@ async function runPlanned(op: Operation, opts: { silent: boolean; auto: boolean 
     ledger: [...s.ledger, entry],
     messages: opts.silent
       ? s.messages
-      : pushMsg(s.messages, "agent", `${op.summary}\nVerified ${op.verifyClass} PASS. Rollback available.`, {
-          operationIds: [op.id],
-        }),
+      : pushMsg(
+          s.messages,
+          "agent",
+          `${op.summary}\nVerified ${op.verifyClass} PASS. Rollback available.`,
+          {
+            operationIds: [op.id],
+          },
+        ),
   }));
 }

@@ -1,11 +1,141 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowUp, Check, RotateCcw, ShieldAlert } from "lucide-react";
+import { ArrowUp, Check, Mic, MicOff, Radio, RotateCcw, ShieldAlert } from "lucide-react";
 import { useHelix } from "@/store/helix-store";
 import { Button } from "@/components/ui/button";
 import { PROMPT_CHIPS } from "@/lib/helix/compiler";
+import { WORKFLOW_STARTERS } from "@/lib/helix/workflows";
 import { capLabel, mechanismLabel, precisionLabel, verifyLabel } from "@/lib/helix/format";
 import { cn } from "@/lib/utils";
 import type { Finding, Operation } from "@/lib/helix/types";
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  [index: number]: { transcript: string };
+}
+
+interface SpeechRecognitionEventLike extends Event {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+// Preview adapter only. Production voice uses the shared VoiceInputProvider
+// contract with native Windows/macOS/Linux microphone providers.
+function speechRecognitionConstructor(): SpeechRecognitionConstructor | undefined {
+  if (typeof window === "undefined") return undefined;
+  const scope = window as typeof window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+}
+
+function useVoicePrompt(onTranscript: (text: string) => void) {
+  const [supported, setSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const liveModeRef = useRef(false);
+  const restartRef = useRef<number | null>(null);
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
+
+  useEffect(() => {
+    setSupported(Boolean(speechRecognitionConstructor()));
+    return () => {
+      liveModeRef.current = false;
+      if (restartRef.current !== null) window.clearTimeout(restartRef.current);
+      recognitionRef.current?.abort();
+    };
+  }, []);
+
+  function begin(continuous: boolean) {
+    const Constructor = speechRecognitionConstructor();
+    if (!Constructor) {
+      setError("Voice input is not supported in this browser.");
+      return;
+    }
+    recognitionRef.current?.abort();
+    const recognition = new Constructor();
+    recognition.continuous = continuous;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      let finalText = "";
+      let interimText = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i]?.[0]?.transcript ?? "";
+        if (event.results[i]?.isFinal) finalText += transcript;
+        else interimText += transcript;
+      }
+      setInterim(interimText.trim());
+      if (finalText.trim()) onTranscriptRef.current(finalText.trim());
+    };
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && event.error !== "no-speech") {
+        setError(
+          event.error === "not-allowed"
+            ? "Microphone permission was denied."
+            : `Voice input error: ${event.error}.`,
+        );
+      }
+    };
+    recognition.onend = () => {
+      setListening(false);
+      setInterim("");
+      if (liveModeRef.current) {
+        restartRef.current = window.setTimeout(() => begin(true), 120);
+      }
+    };
+    recognitionRef.current = recognition;
+    setError(null);
+    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      setError("The microphone could not start. Check browser permissions and try again.");
+    }
+  }
+
+  function stop() {
+    liveModeRef.current = false;
+    setLiveMode(false);
+    setInterim("");
+    recognitionRef.current?.stop();
+  }
+
+  function togglePrompt() {
+    if (listening) stop();
+    else begin(false);
+  }
+
+  function toggleLive() {
+    if (liveMode) stop();
+    else {
+      liveModeRef.current = true;
+      setLiveMode(true);
+      begin(true);
+    }
+  }
+
+  return { supported, listening, liveMode, interim, error, togglePrompt, toggleLive, stop };
+}
 
 export function AgentView() {
   const messages = useHelix((s) => s.messages);
@@ -15,8 +145,53 @@ export function AgentView() {
   const inspect = useHelix((s) => s.inspect);
   const approveSafe = useHelix((s) => s.approveSafe);
   const submit = useHelix((s) => s.submit);
+  const voiceHealth = useHelix((s) => s.voiceHealth);
+  const latestVoiceTranscript = useHelix((s) => s.latestVoiceTranscript);
+  const lastVoiceRoutingConfirmation = useHelix((s) => s.lastVoiceRoutingConfirmation);
+  const routingFeedback = useHelix((s) => s.routingFeedback);
+  const adapterFeedbackAt = useHelix((s) => s.adapterFeedbackAt);
+  const backups = useHelix((s) => s.backups);
+  const backupStatus = useHelix((s) => s.backupStatus);
+  const pendingRecoveryId = useHelix((s) => s.pendingRecoveryId);
+  const approveRestore = useHelix((s) => s.approveRestore);
+  const voiceMacros = useHelix((s) => s.voiceMacros);
+  const audioDiagnostics = useHelix((s) => s.audioDiagnostics);
+  const audioDiagnosticsStatus = useHelix((s) => s.audioDiagnosticsStatus);
+  const setVoiceHealth = useHelix((s) => s.setVoiceHealth);
+  const setVoiceMode = useHelix((s) => s.setVoiceMode);
+  const receiveVoiceTranscript = useHelix((s) => s.receiveVoiceTranscript);
   const scroller = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
+  const voice = useVoicePrompt(
+    (transcript) =>
+      void receiveVoiceTranscript({
+        text: transcript,
+        final: true,
+        timestamp: Date.now(),
+        source: "browser_preview",
+      }),
+  );
+
+  useEffect(() => {
+    const active = voice.liveMode || voice.listening;
+    setVoiceMode(voice.liveMode ? "continuous" : voice.listening ? "push_to_talk" : null);
+    setVoiceHealth({
+      state: active ? "listening" : "idle",
+      permission: active ? "granted" : "unknown",
+      message: active
+        ? voice.liveMode
+          ? "Browser preview booth listening is active; native desktop capture is not connected."
+          : "Browser preview push-to-talk is active."
+        : "Native booth microphone is not connected in the browser preview.",
+      lastTranscriptAt: latestVoiceTranscript?.timestamp,
+    });
+  }, [
+    latestVoiceTranscript?.timestamp,
+    setVoiceHealth,
+    setVoiceMode,
+    voice.liveMode,
+    voice.listening,
+  ]);
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
@@ -96,6 +271,32 @@ export function AgentView() {
         </div>
       )}
       <div className="border-t border-border p-2">
+        <div className="mb-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          {WORKFLOW_STARTERS.map((workflow) => (
+            <button
+              key={workflow.id}
+              type="button"
+              disabled={!workflow.available || busy}
+              onClick={() => void submit(workflow.prompt)}
+              title={
+                workflow.available
+                  ? workflow.description
+                  : `${workflow.description} Planned for ${workflow.release}.`
+              }
+              className={cn(
+                "min-w-0 rounded-sm bg-bg px-2 py-1.5 text-left shadow-[var(--shadow-border)]",
+                workflow.available
+                  ? "text-muted hover:text-fg"
+                  : "cursor-not-allowed text-subtle opacity-60",
+              )}
+            >
+              <span className="block truncate text-[11px] font-medium">{workflow.title}</span>
+              <span className="block text-[9px] uppercase tracking-wide text-subtle">
+                {workflow.available ? "ready" : workflow.release}
+              </span>
+            </button>
+          ))}
+        </div>
         <div className="mb-2 flex gap-1 overflow-x-auto pb-1">
           {PROMPT_CHIPS.map((c) => (
             <button
@@ -119,6 +320,104 @@ export function AgentView() {
             <ArrowUp />
           </Button>
         </form>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={voice.listening && !voice.liveMode ? "primary" : "outline"}
+            onClick={voice.togglePrompt}
+            disabled={!voice.supported}
+            aria-pressed={voice.listening && !voice.liveMode}
+            title="Speak one production prompt"
+          >
+            {voice.listening && !voice.liveMode ? <MicOff /> : <Mic />}
+            {voice.listening && !voice.liveMode ? "Stop speaking" : "Speak"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={voice.liveMode ? "primary" : "outline"}
+            onClick={voice.toggleLive}
+            disabled={!voice.supported}
+            aria-pressed={voice.liveMode}
+            title="Keep listening for prompts from the booth"
+          >
+            <Radio />
+            {voice.liveMode ? "Booth listening" : "Live booth"}
+          </Button>
+          <span className="text-[11px] text-subtle">
+            {!voice.supported
+              ? "Browser preview voice unavailable"
+              : voice.interim
+                ? `Hearing: ${voice.interim}`
+                : voice.liveMode
+                  ? "Listening continuously · final phrases are sent to the Agent"
+                  : "Browser preview · final phrases become chat prompts"}
+          </span>
+        </div>
+        {voice.error && <p className="mt-1 text-[11px] text-warn">{voice.error}</p>}
+        <div className="mt-2 rounded-sm bg-bg px-2 py-1.5 text-[11px] text-subtle">
+          <span className="font-medium text-muted">Native booth provider:</span>{" "}
+          {voiceHealth.message}
+          {latestVoiceTranscript && (
+            <span className="ml-2 text-fg">Last transcript: “{latestVoiceTranscript.text}”</span>
+          )}
+        </div>
+        {lastVoiceRoutingConfirmation && (
+          <div className="mt-1 rounded-sm bg-accent/10 px-2 py-1.5 text-[11px] text-muted">
+            <span className="font-medium text-fg">Voice routing:</span>{" "}
+            {lastVoiceRoutingConfirmation}
+          </div>
+        )}
+        {routingFeedback && (
+          <div className="mt-1 rounded-sm bg-ok-dim px-2 py-1.5 text-[11px] text-muted">
+            <span className="font-medium text-ok">Track feedback:</span> {routingFeedback}
+            {adapterFeedbackAt && (
+              <span className="ml-1 text-subtle">
+                · {new Date(adapterFeedbackAt).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        )}
+        {backupStatus && (
+          <div className="mt-1 rounded-sm bg-bg px-2 py-1.5 text-[11px] text-muted">
+            <span className="font-medium text-fg">Session recovery:</span> {backupStatus}
+            {pendingRecoveryId && (
+              <Button type="button" size="sm" className="ml-2" onClick={approveRestore}>
+                Approve restore
+              </Button>
+            )}
+            {!pendingRecoveryId && backups.length > 0 && (
+              <span className="ml-2 text-subtle">
+                {backups.length} local checkpoint{backups.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="mt-1 rounded-sm bg-bg px-2 py-1.5 text-[11px] text-subtle">
+          <span className="font-medium text-muted">Voice macros:</span>{" "}
+          {voiceMacros.length
+            ? voiceMacros.map((macro) => `“${macro.trigger}” → ${macro.template}`).join(" · ")
+            : "none defined"}
+        </div>
+        {audioDiagnosticsStatus && (
+          <div className="mt-1 rounded-sm bg-bg px-2 py-1.5 text-[11px] text-muted">
+            <span
+              className={cn(
+                "font-medium",
+                audioDiagnostics?.status === "critical" ? "text-warn" : "text-fg",
+              )}
+            >
+              Audio diagnostics:
+            </span>{" "}
+            {audioDiagnosticsStatus}
+            {audioDiagnostics && (
+              <span className="ml-1 text-subtle">
+                · buffer {audioDiagnostics.bufferFrames} frames @ {audioDiagnostics.sampleRate} Hz
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

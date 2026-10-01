@@ -21,7 +21,9 @@ export function SurfaceView({ compact }: { compact?: boolean }) {
   const anySolo = tracks.some((t) => t.solo);
 
   return (
-    <div className={cn("rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]", compact && "p-2")}>
+    <div
+      className={cn("rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]", compact && "p-2")}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-subtle">
@@ -44,9 +46,18 @@ export function SurfaceView({ compact }: { compact?: boolean }) {
             aria-label={session.playing ? "Stop" : "Play"}
             onClick={() => transport(session.playing ? "stop" : "play")}
           >
-            {session.playing ? <Square className="fill-current" /> : <Play className="ml-px fill-current" />}
+            {session.playing ? (
+              <Square className="fill-current" />
+            ) : (
+              <Play className="ml-px fill-current" />
+            )}
           </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Return to zero" onClick={() => transport("return")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Return to zero"
+            onClick={() => transport("return")}
+          >
             <Undo2 />
           </Button>
         </div>
@@ -56,7 +67,10 @@ export function SurfaceView({ compact }: { compact?: boolean }) {
           const t = bankTracks[i];
           if (!t) {
             return (
-              <div key={`empty-${i}`} className="flex w-[64px] shrink-0 flex-col items-center gap-1 opacity-30">
+              <div
+                key={`empty-${i}`}
+                className="flex w-[64px] shrink-0 flex-col items-center gap-1 opacity-30"
+              >
                 <div className="h-7 w-full rounded-xs bg-elevated" />
                 <div className="h-[100px] w-6 rounded-sm bg-bg" />
               </div>
@@ -76,8 +90,17 @@ export function SurfaceView({ compact }: { compact?: boolean }) {
                 {t.name}
               </button>
               <div className="flex items-end gap-1">
-                <LedMeter peakDb={t.peakDb} rmsDb={t.rmsDb} clip={t.clippingEvents > 0} silent={silent} />
-                <Fader valueDb={t.volumeDb} onCommit={(db) => surfaceFader(t.id, db)} height={100} />
+                <LedMeter
+                  peakDb={t.meterLeftDb ?? t.peakDb}
+                  rmsDb={t.meterRightDb ?? t.rmsDb}
+                  clip={t.clippingEvents > 0}
+                  silent={silent}
+                />
+                <Fader
+                  valueDb={t.volumeDb}
+                  onCommit={(db) => surfaceFader(t.id, db)}
+                  height={100}
+                />
               </div>
               <div className="flex gap-0.5">
                 {(["mute", "solo", "arm"] as const).map((f) => (
@@ -100,6 +123,15 @@ export function SurfaceView({ compact }: { compact?: boolean }) {
                   </button>
                 ))}
               </div>
+              {t.sends.length > 0 && (
+                <div
+                  className="w-full truncate text-center text-[8px] text-muted"
+                  title={t.sends.map((s) => `${s.dest} ${s.db.toFixed(1)} dB`).join(", ")}
+                >
+                  {t.sends.map((s) => `${s.dest} ${s.db.toFixed(1)}`).join(" · ")}
+                </div>
+              )}
+              {t.feedbackAt && <span className="text-[8px] text-ok">feedback live</span>}
               <span className={cn("h-0.5 w-8 rounded-full", tintClass(t.tint))} />
             </div>
           );

@@ -9,15 +9,10 @@ export type HostId =
   | "bitwig"
   | "helix";
 
-export type Protocol = "MCU" | "HUI" | "native";
+export type Protocol = "MCU" | "HUI" | "OSC" | "native";
 export type Precision = "EXACT" | "HIGH" | "NORMAL" | "COARSE" | "UNKNOWN";
 export type CapLevel = 0 | 1 | 2 | 3;
-export type Mechanism =
-  | "native"
-  | "plugin_bridge"
-  | "control_surface"
-  | "file"
-  | "human";
+export type Mechanism = "native" | "plugin_bridge" | "control_surface" | "file" | "human";
 export type AutonomyLevel = 0 | 1 | 2 | 3 | 4 | 5;
 export type TransportCommand = "play" | "stop" | "return" | "record";
 export type TrackKind = "audio" | "bus" | "master" | "midi";
@@ -65,6 +60,8 @@ export interface Clip {
 export interface Send {
   dest: string;
   db: number;
+  preFader?: boolean;
+  enabled?: boolean;
 }
 
 export interface Track {
@@ -79,6 +76,9 @@ export interface Track {
   solo: boolean;
   arm: boolean;
   peakDb: number;
+  meterLeftDb?: number;
+  meterRightDb?: number;
+  feedbackAt?: number;
   truePeakDb: number;
   lufsIntegrated: number;
   rmsDb: number;
@@ -193,6 +193,14 @@ export type Change =
   | { kind: "mute"; trackId: string; enabled: boolean }
   | { kind: "solo"; trackId: string; enabled: boolean }
   | { kind: "arm"; trackId: string; enabled: boolean }
+  | {
+      kind: "send";
+      trackId: string;
+      dest: string;
+      db: number;
+      sendIndex?: number;
+      preFader?: boolean;
+    }
   | { kind: "rename"; trackId: string; name: string }
   | { kind: "trim_silence"; trackId: string }
   | { kind: "archive_takes"; trackId: string; keepIds: string[] }
@@ -278,6 +286,14 @@ export type Intent =
       exact?: boolean;
     }
   | { kind: "set_pan"; trackId: string; value: number }
+  | {
+      kind: "set_send";
+      trackId: string;
+      dest: string;
+      mode: "abs" | "rel";
+      db: number;
+      sendIndex?: number;
+    }
   | { kind: "mute"; trackId: string; enabled: boolean }
   | { kind: "solo"; trackId: string; enabled: boolean }
   | { kind: "arm"; trackId: string; enabled: boolean }
@@ -288,6 +304,13 @@ export type Intent =
   | { kind: "trim_silence"; trackId?: string }
   | { kind: "rename"; trackId: string; name: string }
   | { kind: "reset_session" }
+  | { kind: "backup_session"; label?: string }
+  | { kind: "list_backups" }
+  | { kind: "restore_session"; backupId?: string }
+  | { kind: "define_voice_macro"; name: string; trigger: string; template: string }
+  | { kind: "list_voice_macros" }
+  | { kind: "delete_voice_macro"; name: string }
+  | { kind: "inspect_audio_diagnostics" }
   | { kind: "unknown"; text: string };
 
 export interface AgentMessage {
