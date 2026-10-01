@@ -3,6 +3,13 @@ dist/
 .vercel/
 .grok/
 .grok*
+!.grok/
+!.grok/app-env.json
+!.grok/skills/
+!.grok/skills/og/
+!.grok/skills/og/SKILL.md
+!.grok/skills/og/references/
+!.grok/skills/og/references/*.md
 .project_id
 .node_modules.lock
 artifacts/
