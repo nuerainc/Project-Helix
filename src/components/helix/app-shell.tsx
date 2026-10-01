@@ -57,14 +57,14 @@ export function AppShell() {
         <Mark />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <h1 className="text-base font-semibold tracking-tight">Helix</h1>
+            <h1 className="text-base font-semibold tracking-tight">Helix Agent</h1>
             <span className="truncate text-xs text-muted">
               {session.name}
               <span className="hidden sm:inline"> · {session.artist}</span>
             </span>
           </div>
           <p className="font-mono text-[11px] tabular-nums text-subtle">
-            {session.tempo} BPM · {session.sampleRate / 1000} kHz · {formatTimeShort(session.duration)} · {caps.protocol}
+            Agent control layer · {session.tempo} BPM · {session.sampleRate / 1000} kHz · {formatTimeShort(session.duration)} · {caps.protocol}
             {caps.agentFirst ? " · agent-first" : ""}
           </p>
         </div>
