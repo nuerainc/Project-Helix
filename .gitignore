@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vercel/
+.grok/
+.grok*
+.project_id
+.node_modules.lock
+artifacts/
+screenshots/*.png
+screenshots/*.json
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

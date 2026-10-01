@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: #0c0c0e;
+  --color-surface: #141416;
+  --color-elevated: #1c1c20;
+  --color-panel: #121214;
+  --color-fg: #ecece8;
+  --color-muted: #8c8c88;
+  --color-subtle: #6a6a66;
+  --color-faint: #3a3a3e;
+  --color-border: #2a2a2e;
+  --color-border-strong: #3e3e44;
+  --color-accent: #d8d4cc;
+  --color-accent-fg: #0c0c0e;
+  --color-ok: #5a9a72;
+  --color-ok-dim: #1a2e22;
+  --color-warn: #c4a05a;
+  --color-warn-dim: #2e2614;
+  --color-danger: #c45a52;
+  --color-danger-dim: #2e1614;
+  --color-meter: #4a9a6a;
+  --color-meter-warn: #c4a05a;
+  --color-meter-clip: #d0564e;
+  --color-tint-0: #7a8490;
+  --color-tint-1: #8a7a6c;
+  --color-tint-2: #6c8078;
+  --color-tint-3: #80786c;
+  --color-tint-4: #6c7888;
+  --color-tint-5: #708078;
+  --color-tint-6: #8a706c;
+  --color-tint-7: #747878;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-border: 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-faint) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes helix-meter {
+  from {
+    transform: scaleY(0.4);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes helix-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes helix-shimmer {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 120% 0;
+  }
+}
