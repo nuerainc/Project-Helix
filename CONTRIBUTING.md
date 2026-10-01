@@ -12,6 +12,8 @@
 
 Every feature proposal and pull request must identify its product ownership as **Helix Agent**, **Helix DAW**, or **Shared**. Do not describe the modeled `helix` host as a functioning DAW until the native runtime, project persistence, and audio behavior exist and are tested. See [`docs/PRODUCTS.md`](docs/PRODUCTS.md) and [`docs/ROADMAP-v0.2.0.md`](docs/ROADMAP-v0.2.0.md).
 
+Through v0.4.0, new product work should improve Helix Agent interoperability, platform agnosticism, safety, or testability. Helix DAW implementation is deferred; record DAW requests against the locked v1.0.0 target in [`docs/RELEASE-PLAN.md`](docs/RELEASE-PLAN.md) instead of adding them to an Agent release.
+
 ## Commit style
 
 Use concise, imperative commit messages, e.g. `Add capability negotiation to Helix engine`.

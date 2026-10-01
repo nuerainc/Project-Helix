@@ -5,6 +5,7 @@
 - **Helix Agent:** the artist-facing orchestration product for existing DAWs and Helix DAW.
 - **Helix DAW:** our own agent-first DAW for artists and Helix Agents; its native runtime is not implemented yet.
 - **Shared:** domain contracts, capabilities, intents, operation lifecycle, verification, constraints, and ledger semantics.
+- **Near-term focus:** v0.2.0–v0.4.0 work is Helix Agent interoperability and platform agnosticism. Helix DAW feature implementation is parked; see `docs/RELEASE-PLAN.md` for the locked v1 target.
 - `src/lib/helix/`: core Helix domain, intent compilation, sessions, hosts, and formatting.
 - `src/lib/udawca/`: Universal DAW Control Architecture integration.
 - `src/components/helix/`: application UI.

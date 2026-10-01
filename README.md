@@ -20,8 +20,9 @@ These products are related but not interchangeable. The current browser applicat
 
 - [Product strategy and boundaries](docs/PRODUCTS.md)
 - [v0.2.0 roadmap, readiness assessment, and exit criteria](docs/ROADMAP-v0.2.0.md)
+- [Locked v0.2.0–v1.0.0 release feature plan](docs/RELEASE-PLAN.md)
 
-The current baseline passes the repository test, typecheck, lint, and production-build gates. It is a strong Agent-oriented prototype foundation, not yet a full-featured Helix DAW or a production-ready cross-DAW integration release.
+The current baseline passes the repository test, typecheck, lint, and production-build gates. Active delivery is focused on Helix Agent interoperability and platform agnosticism through v0.4.0; Helix DAW implementation is parked while its v1.0.0 feature set remains locked in the release plan.
 
 ## Development
 

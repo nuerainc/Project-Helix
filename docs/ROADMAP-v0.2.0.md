@@ -1,5 +1,7 @@
 # v0.2.0 Roadmap
 
+> **Planning note:** This document is retained as the original v0.2.0 assessment. The authoritative feature commitments for v0.2.0, v0.3.0, v0.4.0, and the locked Helix Agent/Helix DAW v1.0.0 targets are now in [`RELEASE-PLAN.md`](RELEASE-PLAN.md). The current strategy parks Helix DAW implementation through v0.4.0 and prioritizes Helix Agent interoperability and platform agnosticism.
+
 ## Release intent
 
 v0.2.0 is the **two-product foundation release** for Project Helix. It should make the distinction between **Helix Agent** and **Helix DAW** executable in the architecture, product language, and test plan.

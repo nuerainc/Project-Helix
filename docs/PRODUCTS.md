@@ -34,6 +34,10 @@ It is not merely another adapter entry in the Helix Agent host registry. It is a
 
 The current `helix` host entry is a **design and capability placeholder** for this future product. It does not mean that Helix DAW's audio engine, file format, plugin runtime, or native runtime already exists.
 
+### Current investment decision
+
+Helix DAW implementation is intentionally **parked through Helix Agent v0.4.0**. We will not spend the v0.2.0–v0.4.0 releases building DAW audio, editing, plugin, project, or native UI features. We will lock and maintain the Helix DAW v1.0.0 target feature set, and we may maintain only the shared contracts, simulators, and documentation needed to keep Helix Agent interoperable and platform-agnostic.
+
 ## Shared architecture
 
 The products should share contracts, not collapse into one codepath:
@@ -56,3 +60,5 @@ When a feature is proposed, label it **Agent**, **DAW**, or **Shared** before im
 - **Shared:** domain types, intent schema, operation lifecycle, verification classes, constraints, and protocol-neutral test fixtures.
 
 A simulated Helix host, demo session, or browser control surface may validate contracts, but it must never be described as a shipped Helix DAW runtime.
+
+For the complete release commitments, read [`RELEASE-PLAN.md`](RELEASE-PLAN.md).
