@@ -19,11 +19,12 @@
     "mcu:list": "node --experimental-strip-types scripts/mackie-control.ts --list",
     "mcu:connect": "node --experimental-strip-types scripts/mackie-control.ts --connect",
     "osc:connect": "node --experimental-strip-types scripts/osc-bridge.ts",
+    "check:runtime-backends": "node scripts/check-runtime-backends.mjs",
     "voice:booth": "node --experimental-strip-types scripts/voice-booth.ts",
     "project:state": "node --experimental-strip-types scripts/project-state.ts",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/udawca/adapter.test.ts src/lib/udawca/hui-protocol.test.ts src/lib/udawca/hui-midi-adapter.test.ts src/lib/udawca/mcu-protocol.test.ts src/lib/udawca/mcu-midi-adapter.test.ts src/lib/udawca/osc-adapter.test.ts src/lib/helix/native-voice-provider.test.ts src/lib/helix/voice-routing-bridge.test.ts src/lib/helix/session-backup.test.ts src/lib/helix/voice-macros.test.ts src/lib/helix/audio-diagnostics.test.ts src/lib/helix/native-project-state.test.ts src/lib/helix/native-project-sync.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/udawca/adapter.test.ts src/lib/udawca/hui-protocol.test.ts src/lib/udawca/hui-midi-adapter.test.ts src/lib/udawca/mcu-protocol.test.ts src/lib/udawca/mcu-midi-adapter.test.ts src/lib/udawca/osc-adapter.test.ts src/lib/udawca/osc-profiles.test.ts src/lib/helix/native-voice-provider.test.ts src/lib/helix/voice-routing-bridge.test.ts src/lib/helix/session-backup.test.ts src/lib/helix/voice-macros.test.ts src/lib/helix/audio-diagnostics.test.ts src/lib/helix/native-project-state.test.ts src/lib/helix/native-project-sync.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

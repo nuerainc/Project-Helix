@@ -19,6 +19,31 @@ const mcuSurface = {
 
 export const HOSTS: CapabilityGraph[] = [
   {
+    host: "generic",
+    label: "Generic DAW OSC",
+    vendor: "Protocol profile",
+    protocol: "OSC",
+    surface: { mixer: true, transport: true, banking: true, metering: false, parameter_feedback: true },
+    native: {
+      track_creation: false,
+      clip_editing: false,
+      parameter_exact: false,
+      automation: false,
+      rename: false,
+      take_lanes: false,
+    },
+    plugin_bridge: {
+      audio_analysis: false,
+      track_state: false,
+      parameter_state: false,
+      clip_ops: false,
+    },
+    file: { read: false, write: false },
+    precision: { volume: "COARSE", pan: "COARSE", mute: "EXACT" },
+    notes: "Portable OSC contract; host-specific guarantees require a named profile.",
+    agentFirst: false,
+  },
+  {
     host: "logic",
     label: "Logic Pro",
     vendor: "Apple",

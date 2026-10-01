@@ -1,4 +1,5 @@
 export type HostId =
+  | "generic"
   | "logic"
   | "cubase"
   | "protools"

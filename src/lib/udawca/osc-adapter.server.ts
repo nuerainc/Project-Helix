@@ -11,11 +11,9 @@ import type {
 import {
   decodeOscMessage,
   encodeOscMessage,
-  oscBankAddress,
-  oscTrackAddress,
-  oscTransportAddress,
   type OscMessage,
 } from "./osc-protocol.ts";
+import { helixOscProfile, type OscProfile } from "./osc-profiles.ts";
 
 export interface OscTransport {
   open(onPacket: (packet: Uint8Array) => void, onError: (error: Error) => void): Promise<void>;
@@ -29,18 +27,19 @@ export interface OscConfig {
   remotePort: number;
   staleAfterMs?: number;
   bankOffset?: number;
+  profile?: OscProfile;
 }
 
 export interface OscAdapter extends HelixAdapter {
-  readonly config: Required<OscConfig>;
+  readonly config: Required<Omit<OscConfig, "profile">> & { profile: OscProfile };
   bank(delta: -1 | 1): void;
 }
 
 const descriptor: AdapterDescriptor = {
-  id: "helix-osc-native",
-  label: "Helix OSC · native UDP",
-  version: "0.4.0-dev",
-  host: "protools",
+  id: "osc-native",
+  label: "Profile-driven OSC · native UDP",
+  version: "0.5.0-dev",
+  host: "generic",
   protocol: "OSC",
   platforms: ["windows", "macos", "linux"],
 };
@@ -50,8 +49,8 @@ export function createOscAdapter(
   transport: OscTransport,
   initial: SessionState = createDemoSession(),
 ): OscAdapter {
-  const settings = { staleAfterMs: 0, bankOffset: 0, ...config };
-  const caps = hostById("protools");
+  const settings = { staleAfterMs: 0, bankOffset: 0, profile: helixOscProfile, ...config };
+  const caps = hostById(settings.profile.host);
   let state: AdapterHealth["state"] = "disconnected";
   let permission: AdapterHealth["permission"] = "unknown";
   const session = cloneSession(initial);
@@ -93,20 +92,20 @@ export function createOscAdapter(
       lastError = error instanceof Error ? error.message : String(error);
       return;
     }
-    const trackMatch = message.address.match(/^\/helix\/track\/(\d+)\/(mute|solo|arm|volume)$/);
-    if (trackMatch) {
-      const zone = Number(trackMatch[1]);
-      const field = trackMatch[2] as "mute" | "solo" | "arm" | "volume";
+    const feedback = settings.profile.decodeFeedback(message);
+    if (feedback?.kind === "track") {
+      const zone = feedback.zone;
+      const field = feedback.field;
       const track = session.tracks[settings.bankOffset + zone];
-      const value = message.args[0];
+      const value = feedback.value;
       if (!track || value === undefined) return;
       if (field === "volume" && typeof value === "number") track.volumeDb = value;
       if (field !== "volume" && typeof value === "boolean") track[field] = value;
       if (field !== "volume" && typeof value === "number") track[field] = value > 0;
       return;
     }
-    if (message.address === "/helix/transport/playing" && typeof message.args[0] === "boolean") {
-      session.playing = message.args[0];
+    if (feedback?.kind === "playing") {
+      session.playing = feedback.value;
     }
   }
 
@@ -138,18 +137,18 @@ export function createOscAdapter(
 
   function changeMessage(change: Change): OscMessage | undefined {
     if (change.kind === "transport") {
-      if (change.command === "return") return undefined;
-      return { address: oscTransportAddress(change.command), args: [true] };
+      const address = settings.profile.transportAddress(change.command);
+      return address ? { address, args: [true] } : undefined;
     }
     const zone = trackZone(change.trackId);
     if (zone === undefined) return undefined;
     if (change.kind === "mute" || change.kind === "solo" || change.kind === "arm") {
-      return { address: oscTrackAddress(zone, change.kind), args: [change.enabled] };
+      return { address: settings.profile.trackAddress(zone, change.kind), args: [change.enabled] };
     }
     if (change.kind === "volume") {
       const track = findTrack(session, change.trackId);
       const db = change.absDb ?? (track?.volumeDb ?? 0) + (change.deltaDb ?? 0);
-      return { address: oscTrackAddress(zone, "volume"), args: [db] };
+      return { address: settings.profile.trackAddress(zone, "volume"), args: [db] };
     }
     return undefined;
   }
@@ -170,7 +169,12 @@ export function createOscAdapter(
   }
 
   return {
-    descriptor,
+    descriptor: {
+      ...descriptor,
+      id: `${settings.profile.id}-native`,
+      label: `${settings.profile.label} · native UDP`,
+      host: settings.profile.host,
+    },
     config: settings,
     discover: async () => caps,
     connect,
@@ -225,7 +229,7 @@ export function createOscAdapter(
       };
     },
     bank: (delta) => {
-      send({ address: oscBankAddress(), args: [delta] });
+      send({ address: settings.profile.bankAddress(), args: [delta] });
       settings.bankOffset = Math.max(0, settings.bankOffset + delta * 8);
       lastSeenAt = Date.now();
     },

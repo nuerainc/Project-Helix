@@ -36,6 +36,7 @@ The current baseline passes the repository test, typecheck, lint, and production
 ```bash
 npm ci
 npm run typecheck
+npm run check:runtime-backends
 npm test
 npm run lint
 npm run build

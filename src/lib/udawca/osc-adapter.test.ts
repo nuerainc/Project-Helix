@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createOscAdapter, type OscTransport } from "./osc-adapter.server.ts";
 import { decodeOscMessage, encodeOscMessage, oscTrackAddress } from "./osc-protocol.ts";
 import { listAdapterRegistry } from "./adapter-registry.server.ts";
+import { genericDawOscProfile, helixOscProfile } from "./osc-profiles.ts";
 import type { Operation } from "../helix/types.ts";
 
 class FakeOscTransport implements OscTransport {
@@ -71,6 +72,29 @@ test("OSC feedback updates session state and unsupported operations are refused"
   operation.changes = [{ kind: "rename", trackId: "tr_kick", name: "Kick" }];
   assert.equal((await adapter.execute(operation)).status, "refused");
   await adapter.disconnect();
+});
+
+test("generic DAW profile routes control messages and discovers generic capabilities", async () => {
+  const transport = new FakeOscTransport();
+  const adapter = createOscAdapter(
+    { localPort: 9000, remoteHost: "127.0.0.1", remotePort: 9001, profile: genericDawOscProfile },
+    transport,
+  );
+  assert.equal(adapter.descriptor.host, "generic");
+  assert.equal((await adapter.discover()).host, "generic");
+  await adapter.connect();
+  await adapter.execute(operationWithChanges());
+  assert.deepEqual(decodeOscMessage(transport.sent[0]!), {
+    address: "/daw/track/0/mute",
+    args: [true],
+  });
+  transport.receive(encodeOscMessage({ address: "/daw/track/0/mute", args: [false] }));
+  assert.equal((await adapter.snapshot()).tracks[0]?.mute, false);
+  await adapter.disconnect();
+});
+
+test("the default adapter remains backward-compatible with Helix OSC", () => {
+  assert.equal(helixOscProfile.trackAddress(0, "mute"), oscTrackAddress(0, "mute"));
 });
 
 test("registry exposes implemented HUI and MCU plus experimental OSC", () => {
